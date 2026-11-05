@@ -1,0 +1,6 @@
+{
+  "name": "TFT Tactical Overlay — Asistente de Meta en Tiempo Real",
+  "description": "Overlay interactivo de segunda pantalla para Teamfight Tactics con filtro de campeones iniciales, progresión nivel por nivel (Lvl 4 a 8), alertas de pivot, tablero hexagonal 4x7 y prioridad de ítems en español latino.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
