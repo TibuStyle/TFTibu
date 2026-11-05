@@ -93,7 +93,12 @@ export default function App() {
 
   // Global game stage / level sync
   const [globalLevel, setGlobalLevel] = useState<ActiveBoardLevel>('lvl_4');
-  const [autoStageTimer, setAutoStageTimer] = useState<boolean>(false);
+  const [matchClockRunning, setMatchClockRunning] = useState<boolean>(false);
+  const [matchSeconds, setMatchSeconds] = useState<number>(95); // 2-1 starts around 1m35s
+  const [liveBridgeActive, setLiveBridgeActive] = useState<boolean>(false);
+  const [liveBridgeStatus, setLiveBridgeStatus] = useState<string>(
+    'Modo Manual / Reloj Web'
+  );
 
   // Composition list filters & accordion state
   const [tierFilter, setTierFilter] = useState<'ALL' | 'S' | 'A'>('ALL');
@@ -106,6 +111,9 @@ export default function App() {
 
   // Desktop .EXE & JSON modal
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+  const [modalInitialTab, setModalInitialTab] = useState<
+    'live_bridge' | 'github_pages' | 'json' | 'exe_python'
+  >('live_bridge');
 
   // Save custom JSON compositions to localStorage
   const handleUpdateCompositions = (newComps: MetaComposition[]) => {
@@ -117,18 +125,65 @@ export default function App() {
     }
   };
 
-  // Optional auto-phase progression simulator for hands-free 2nd monitor preview
+  // Real TFT Match Clock (1-click sync at Stage 2-1 for 100% browser / GitHub Pages use)
   useEffect(() => {
-    if (!autoStageTimer) return;
-    const order: ActiveBoardLevel[] = ['lvl_4', 'lvl_5', 'lvl_6', 'lvl_7', 'lvl_8'];
+    if (!matchClockRunning) return;
     const interval = setInterval(() => {
-      setGlobalLevel((prev) => {
-        const nextIdx = (order.indexOf(prev) + 1) % order.length;
-        return order[nextIdx];
+      setMatchSeconds((prev) => {
+        const next = prev + 1;
+        if (next < 190) setGlobalLevel('lvl_4');
+        else if (next < 360) setGlobalLevel('lvl_5');
+        else if (next < 580) setGlobalLevel('lvl_6');
+        else if (next < 780) setGlobalLevel('lvl_7');
+        else setGlobalLevel('lvl_8');
+        return next;
       });
-    }, 12000);
+    }, 1000);
     return () => clearInterval(interval);
-  }, [autoStageTimer]);
+  }, [matchClockRunning]);
+
+  // Automatic Riot Client Bridge Poller (connects to tft_live_bridge.py at 127.0.0.1:5123)
+  useEffect(() => {
+    if (!liveBridgeActive) return;
+    let cancelled = false;
+
+    const pollBridge = async () => {
+      try {
+        const res = await fetch('http://127.0.0.1:5123/status');
+        if (!res.ok) throw new Error('No response');
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.inGame && data.level) {
+          setGlobalLevel(data.level as ActiveBoardLevel);
+          setMatchSeconds(Number(data.seconds) || 0);
+          setLiveBridgeStatus(
+            `Conectado a Riot (${data.summonerName || 'En partida'} · ${data.stage})`
+          );
+        } else {
+          setLiveBridgeStatus('Puente activo · Esperando que inicies partida de TFT');
+        }
+      } catch {
+        if (!cancelled) {
+          setLiveBridgeStatus(
+            'Puente local no detectado en 127.0.0.1:5123 (Haz clic en Configurar)'
+          );
+        }
+      }
+    };
+
+    pollBridge();
+    const timer = setInterval(pollBridge, 3500);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [liveBridgeActive]);
+
+  const formatClock = (secs: number) => {
+    const mins = Math.floor(secs / 60);
+    const rem = secs % 60;
+    return `${String(mins).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
+  };
 
   // All Cost 1 & Cost 2 champions for the early game selector
   const earlyCatalogChampions = useMemo(() => {
@@ -388,33 +443,58 @@ export default function App() {
 
           {/* Right 5 cols: Game Phase / Level Synchronizer (Auto-adjusts all cards to your current round) */}
           <div className="xl:col-span-5 bg-[#131B2E] border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
-            <div className="flex items-center justify-between gap-2 mb-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
               <div>
                 <h2 className="text-sm sm:text-base font-display font-bold text-slate-100">
-                  Fase Actual de tu Partida (Sincroniza Todas las Mesas)
+                  Sincronizador de Partida en Vivo ({formatClock(matchSeconds)})
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Cambia todas las tarjetas al nivel de tu ronda en 1 clic:
+                  {liveBridgeStatus}
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setAutoStageTimer((prev) => !prev)}
-                title="Avanza automáticamente las fases para demostración o práctica"
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                  autoStageTimer
-                    ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
-                    : 'bg-[#0B0F17] border-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {autoStageTimer ? (
-                  <Pause className="w-3.5 h-3.5" />
-                ) : (
-                  <Play className="w-3.5 h-3.5" />
-                )}
-                {autoStageTimer ? 'Auto-Fase Activo' : 'Simular Fases'}
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!matchClockRunning) {
+                      setMatchSeconds(95);
+                      setGlobalLevel('lvl_4');
+                      setMatchClockRunning(true);
+                    } else {
+                      setMatchClockRunning(false);
+                    }
+                  }}
+                  title="Inicia el reloj oficial de tiempos de TFT al empezar la Ronda 2-1 (100% Web)"
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                    matchClockRunning
+                      ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                      : 'bg-[#0B0F17] border-slate-800 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  {matchClockRunning ? (
+                    <Pause className="w-3.5 h-3.5" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5 text-emerald-400" />
+                  )}
+                  {matchClockRunning ? 'Pausar Reloj' : 'Iniciar en 2-1'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLiveBridgeActive((prev) => !prev);
+                  }}
+                  title="Conectar con tft_live_bridge.py para leer el cliente de Riot (127.0.0.1:2999)"
+                  className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                    liveBridgeActive
+                      ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
+                      : 'bg-[#0B0F17] border-slate-800 text-amber-300 hover:border-amber-400/50'
+                  }`}
+                >
+                  {liveBridgeActive ? 'Riot Live: ON' : 'Auto-Riot API'}
+                </button>
+              </div>
             </div>
 
             {/* Level Selector Buttons */}
@@ -782,12 +862,13 @@ export default function App() {
         </button>
       </footer>
 
-      {/* Modal for Live JSON Editing & Desktop .EXE Packaging */}
+      {/* Modal for Live Game Detection, GitHub Pages, Live JSON Editing & Desktop .EXE Packaging */}
       <DesktopExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         compositions={compositions}
         onUpdateCompositions={handleUpdateCompositions}
+        initialTab={modalInitialTab}
       />
     </div>
   );

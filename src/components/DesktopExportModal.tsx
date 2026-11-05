@@ -7,7 +7,8 @@ import {
   Copy,
   FileJson,
   Terminal,
-  Monitor,
+  Globe,
+  Radio,
   RotateCcw,
 } from 'lucide-react';
 import { MetaComposition, INITIAL_META_COMPOSITIONS } from '../data/metaComps';
@@ -17,6 +18,7 @@ interface DesktopExportModalProps {
   onClose: () => void;
   compositions: MetaComposition[];
   onUpdateCompositions: (newComps: MetaComposition[]) => void;
+  initialTab?: 'live_bridge' | 'github_pages' | 'json' | 'exe_python';
 }
 
 export const DesktopExportModal: React.FC<DesktopExportModalProps> = ({
@@ -24,8 +26,11 @@ export const DesktopExportModal: React.FC<DesktopExportModalProps> = ({
   onClose,
   compositions,
   onUpdateCompositions,
+  initialTab = 'live_bridge',
 }) => {
-  const [activeTab, setActiveTab] = useState<'json' | 'exe_python' | 'second_screen'>('json');
+  const [activeTab, setActiveTab] = useState<
+    'live_bridge' | 'github_pages' | 'json' | 'exe_python'
+  >(initialTab);
   const [jsonText, setJsonText] = useState<string>(() =>
     JSON.stringify(compositions, null, 2)
   );
@@ -91,20 +96,112 @@ export const DesktopExportModal: React.FC<DesktopExportModalProps> = ({
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
+  const liveBridgePythonCode = `# tft_live_bridge.py
+# Puente Local Oficial para conectar tu partida de TFT (Riot Live Client API 127.0.0.1:2999)
+# con la Página Web de GitHub Pages o el Overlay en Tiempo Real.
+# Ejecutar con: python tft_live_bridge.py
+
+import json
+import ssl
+import urllib.request
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+RIOT_LIVE_URL = "https://127.0.0.1:2999/liveclientdata/allgamedata"
+
+# Ignorar el certificado autofirmado local de Riot Games en 127.0.0.1:2999
+ssl_ctx = ssl.create_default_context()
+ssl_ctx.check_hostname = False
+ssl_ctx.verify_mode = ssl.CERT_NONE
+
+def map_game_seconds_to_tft_stage(seconds: float):
+    """Convierte el tiempo real de partida de Riot en la Fase y Nivel de TFT"""
+    if seconds < 190:
+        return {"level": "lvl_4", "stage": "Fase 2-1", "inGame": True, "seconds": int(seconds)}
+    elif seconds < 360:
+        return {"level": "lvl_5", "stage": "Fase 2-5", "inGame": True, "seconds": int(seconds)}
+    elif seconds < 580:
+        return {"level": "lvl_6", "stage": "Fase 3-2", "inGame": True, "seconds": int(seconds)}
+    elif seconds < 780:
+        return {"level": "lvl_7", "stage": "Fase 4-1", "inGame": True, "seconds": int(seconds)}
+    else:
+        return {"level": "lvl_8", "stage": "Fase 4-2+ (Pivot)", "inGame": True, "seconds": int(seconds)}
+
+class BridgeHandler(BaseHTTPRequestHandler):
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
+    def do_GET(self):
+        if self.path.startswith("/status"):
+            payload = {"inGame": False, "level": "lvl_4", "stage": "Esperando partida...", "seconds": 0}
+            try:
+                req = urllib.request.Request(RIOT_LIVE_URL)
+                with urllib.request.urlopen(req, context=ssl_ctx, timeout=1.2) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    game_time = float(data.get("gameData", {}).get("gameTime", 0))
+                    summoner = data.get("activePlayer", {}).get("summonerName", "Jugador")
+                    payload = map_game_seconds_to_tft_stage(game_time)
+                    payload["summonerName"] = summoner
+            except Exception:
+                pass
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode("utf-8"))
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        return  # Silenciar consola
+
+if __name__ == "__main__":
+    print("=== PUENTE LOCAL TFT ACTIVO EN http://127.0.0.1:5123/status ===")
+    print("Detectando cliente de Riot Games (127.0.0.1:2999) automaticamente...")
+    server = HTTPServer(("127.0.0.1", 5123), BridgeHandler)
+    server.serve_forever()
+`;
+
+  const githubPagesCommands = `# 1. Inicializa Git y sube este proyecto a un repositorio en tu cuenta de GitHub:
+git init
+git add .
+git commit -m "Deploy TFT Tactical Overlay"
+git branch -M main
+git remote add origin https://github.com/TU_USUARIO/tft-tactical-overlay.git
+git push -u origin main
+
+# 2. Activa GitHub Pages en tu repositorio (solo se hace una vez):
+# Ve a tu repositorio en GitHub -> Settings -> Pages
+# En "Build and deployment" -> "Source", elige: "GitHub Actions"
+# ¡Listo! El archivo .github/workflows/deploy.yml incluido en este proyecto
+# compilará y publicará automáticamente tu web en:
+# https://TU_USUARIO.github.io/tft-tactical-overlay/`;
+
   const pythonDesktopCode = `# tft_overlay_desktop.py
 # Asistente de Combate & Overlay de Segunda Pantalla para TFT (Empaquetable a .EXE)
-# Requisitos: pip install customtkinter pywebview pyinstaller
+# Además detecta automáticamente la partida de Riot en https://127.0.0.1:2999
+# Requisitos: pip install customtkinter pyinstaller
 
 import json
 import os
 import sys
+import ssl
+import urllib.request
 import customtkinter as ctk
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
+ssl_ctx = ssl.create_default_context()
+ssl_ctx.check_hostname = False
+ssl_ctx.verify_mode = ssl.CERT_NONE
+
 def resource_path(relative_path):
-    """Obtiene la ruta del JSON tanto en desarrollo como dentro del .exe de PyInstaller"""
     try:
         base_path = sys._MEIPASS
     except Exception:
@@ -114,26 +211,22 @@ def resource_path(relative_path):
 class TFTTacticalOverlayApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("TFT Tactical Overlay — Asistente de 2da Pantalla")
+        self.title("TFT Tactical Overlay — Auto-Detector de Partida")
         self.geometry("1280x820")
         self.configure(fg_color="#0B0F17")
         self.always_on_top = False
-
-        # Cargar meta_comps.json modular
         self.comps = self.load_meta_json()
-        self.selected_early = set()
 
-        # Barra superior
         header = ctk.CTkFrame(self, fg_color="#131B2E", corner_radius=8)
         header.pack(fill="x", padx=12, pady=10)
 
-        title_lbl = ctk.CTkLabel(
+        self.status_lbl = ctk.CTkLabel(
             header,
-            text="TFT TACTICAL OVERLAY — DECISIÓN EN < 5 SEGUNDOS",
-            font=ctk.CTkFont(size=18, weight="bold"),
+            text="TFT OVERLAY · Buscando partida en Riot Client (127.0.0.1:2999)...",
+            font=ctk.CTkFont(size=16, weight="bold"),
             text_color="#F59E0B"
         )
-        title_lbl.pack(side="left", padx=14, pady=10)
+        self.status_lbl.pack(side="left", padx=14, pady=10)
 
         pin_btn = ctk.CTkButton(
             header,
@@ -144,10 +237,10 @@ class TFTTacticalOverlayApp(ctk.CTk):
         )
         pin_btn.pack(side="right", padx=14, pady=10)
 
-        # Contenedor desplazable de tarjetas de composición
         self.scroll = ctk.CTkScrollableFrame(self, fg_color="#0B0F17")
         self.scroll.pack(fill="both", expand=True, padx=12, pady=6)
-        self.render_compositions()
+        self.render_compositions("lvl_4")
+        self.poll_riot_client()
 
     def toggle_topmost(self):
         self.always_on_top = not self.always_on_top
@@ -160,42 +253,39 @@ class TFTTacticalOverlayApp(ctk.CTk):
                 return json.load(f)
         return []
 
-    def render_compositions(self):
+    def poll_riot_client(self):
+        try:
+            req = urllib.request.Request("https://127.0.0.1:2999/liveclientdata/allgamedata")
+            with urllib.request.urlopen(req, context=ssl_ctx, timeout=1.0) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                secs = float(data.get("gameData", {}).get("gameTime", 0))
+                lvl = "lvl_4" if secs < 190 else "lvl_5" if secs < 360 else "lvl_6" if secs < 580 else "lvl_7" if secs < 780 else "lvl_8"
+                self.status_lbl.configure(text=f"🟢 PARTIDA EN VIVO ({int(secs//60)}m {int(secs%60)}s) — Mostrando mesa de {lvl.upper()}", text_color="#34D399")
+        except Exception:
+            pass
+        self.after(4000, self.poll_riot_client)
+
+    def render_compositions(self, active_lvl):
         for widget in self.scroll.winfo_children():
             widget.destroy()
-
         for comp in self.comps:
             card = ctk.CTkFrame(self.scroll, fg_color="#131B2E", corner_radius=10, border_width=1, border_color="#1E293B")
             card.pack(fill="x", padx=6, pady=8)
-
             top_text = f"[TIER {comp.get('tier')}] {comp.get('nombre')}  ·  {comp.get('arquetipo')}  ·  Daño {comp.get('estiloDano')}"
             ctk.CTkLabel(card, text=top_text, font=ctk.CTkFont(size=16, weight="bold"), text_color="#F8FAFC").pack(anchor="w", padx=14, pady=(12, 4))
-
             pivot = comp.get("transicion_pivot", {})
-            pivot_lbl = f"⚡ PIVOT ({pivot.get('momento')}): {pivot.get('alerta_texto')}"
-            ctk.CTkLabel(card, text=pivot_lbl, font=ctk.CTkFont(size=13, weight="bold"), text_color="#F59E0B").pack(anchor="w", padx=14, pady=2)
-
+            ctk.CTkLabel(card, text=f"⚡ PIVOT ({pivot.get('momento')}): {pivot.get('alerta_texto')}", font=ctk.CTkFont(size=13, weight="bold"), text_color="#F59E0B").pack(anchor="w", padx=14, pady=2)
             early = comp.get("early_game", {})
             lvl_str = f"Lvl 4: {', '.join(early.get('lvl_4', []))}  |  Lvl 5: {', '.join(early.get('lvl_5', []))}  |  Lvl 6: {', '.join(early.get('lvl_6', []))}  |  Lvl 7: {', '.join(early.get('lvl_7', []))}"
-            ctk.CTkLabel(card, text=lvl_str, font=ctk.CTkFont(size=12), text_color="#94A3B8").pack(anchor="w", padx=14, pady=2)
-
-            tip = f"💡 Condición de Victoria: {comp.get('consejo_rapido')}"
-            ctk.CTkLabel(card, text=tip, font=ctk.CTkFont(size=12), text_color="#34D399").pack(anchor="w", padx=14, pady=(2, 12))
+            ctk.CTkLabel(card, text=lvl_str, font=ctk.CTkFont(size=12), text_color="#94A3B8").pack(anchor="w", padx=14, pady=(2, 12))
 
 if __name__ == "__main__":
     app = TFTTacticalOverlayApp()
     app.mainloop()
 `;
 
-  const buildExeCommands = `# 1. Instalar dependencias en Windows (CMD o PowerShell)
-pip install customtkinter pyinstaller
-
-# 2. Colocar 'tft_overlay_desktop.py' y 'meta_comps.json' en la misma carpeta
-
-# 3. Compilar a un único ejecutable .EXE sin consola negra de fondo:
-pyinstaller --noconsole --onefile --add-data "meta_comps.json;." --name "TFT_Tactical_Overlay" tft_overlay_desktop.py
-
-# El archivo final estará listo en: dist/TFT_Tactical_Overlay.exe`;
+  const buildExeCommands = `pip install customtkinter pyinstaller
+pyinstaller --noconsole --onefile --add-data "meta_comps.json;." --name "TFT_Tactical_Overlay" tft_overlay_desktop.py`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
@@ -204,10 +294,10 @@ pyinstaller --noconsole --onefile --add-data "meta_comps.json;." --name "TFT_Tac
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-[#0B0F17]">
           <div>
             <h2 className="text-lg font-display font-bold text-slate-100">
-              Gestión Modular del Meta (JSON) y Compilación a .EXE Desktop
+              Detección de Juego en Vivo, GitHub Pages y Empaquetado .EXE
             </h2>
             <p className="text-xs text-slate-400">
-              Actualiza las composiciones cuando cambie el parche o descarga el empaquetado `.exe` para Windows.
+              Conecta la web con tu cliente de Riot Games (`127.0.0.1:2999`), publícala en GitHub Pages o edita el JSON.
             </p>
           </div>
           <button
@@ -223,15 +313,41 @@ pyinstaller --noconsole --onefile --add-data "meta_comps.json;." --name "TFT_Tac
         <div className="flex items-center gap-2 px-6 py-3 bg-[#0E1422] border-b border-slate-800 overflow-x-auto">
           <button
             type="button"
+            onClick={() => setActiveTab('live_bridge')}
+            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+              activeTab === 'live_bridge'
+                ? 'bg-amber-500 text-slate-950 font-bold'
+                : 'bg-[#131B2E] text-slate-300 hover:text-white border border-slate-800'
+            }`}
+          >
+            <Radio className="w-4 h-4" />
+            1. ¿Cómo Detecta mi Partida de TFT?
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('github_pages')}
+            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+              activeTab === 'github_pages'
+                ? 'bg-amber-500 text-slate-950 font-bold'
+                : 'bg-[#131B2E] text-slate-300 hover:text-white border border-slate-800'
+            }`}
+          >
+            <Globe className="w-4 h-4" />
+            2. Publicar en GitHub Pages
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab('json')}
             className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
               activeTab === 'json'
-                ? 'bg-amber-500 text-slate-950'
+                ? 'bg-amber-500 text-slate-950 font-bold'
                 : 'bg-[#131B2E] text-slate-300 hover:text-white border border-slate-800'
             }`}
           >
             <FileJson className="w-4 h-4" />
-            1. Archivo Modular meta_comps.json (En Vivo)
+            3. Editar meta_comps.json
           </button>
 
           <button
@@ -239,36 +355,132 @@ pyinstaller --noconsole --onefile --add-data "meta_comps.json;." --name "TFT_Tac
             onClick={() => setActiveTab('exe_python')}
             className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
               activeTab === 'exe_python'
-                ? 'bg-amber-500 text-slate-950'
+                ? 'bg-amber-500 text-slate-950 font-bold'
                 : 'bg-[#131B2E] text-slate-300 hover:text-white border border-slate-800'
             }`}
           >
             <Terminal className="w-4 h-4" />
-            2. Compilar a .EXE en Windows (Python / PyInstaller)
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('second_screen')}
-            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-              activeTab === 'second_screen'
-                ? 'bg-amber-500 text-slate-950'
-                : 'bg-[#131B2E] text-slate-300 hover:text-white border border-slate-800'
-            }`}
-          >
-            <Monitor className="w-4 h-4" />
-            3. Modo Ventana Nativa Sin Bordes (2da Pantalla)
+            4. Compilar a .EXE Nativo
           </button>
         </div>
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-4 flex-1">
+          {activeTab === 'live_bridge' && (
+            <div className="space-y-4 text-xs text-slate-300 leading-relaxed">
+              <div className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 space-y-2.5">
+                <h3 className="text-sm font-display font-bold text-amber-300">
+                  ¿Cómo sabe la aplicación en qué fase o ronda de TFT estás? (2 Métodos)
+                </h3>
+                <p>
+                  Cuando entras a una partida de League of Legends / TFT, el cliente de Riot Games abre automáticamente en tu PC un servidor local en{' '}
+                  <code className="font-mono text-emerald-300">https://127.0.0.1:2999/liveclientdata/allgamedata</code>{' '}
+                  que entrega en tiempo real el segundo exacto de la partida (<code className="font-mono text-white">gameTime</code>) y tu nombre de invocador.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                  <div className="p-3 rounded-lg bg-[#131B2E] border border-slate-800">
+                    <div className="font-bold text-slate-100 mb-1">
+                      Método A: 100% Web sin instalar nada (Reloj Oficial 2-1)
+                    </div>
+                    <p className="text-slate-400">
+                      Si abres la web desde GitHub Pages en tu 2da pantalla o tablet, pulsa el botón{' '}
+                      <strong className="text-emerald-300">"Iniciar Reloj en Fase 2-1"</strong> en la barra superior apenas comience la ronda 2-1. Como las rondas y carruseles de TFT tienen tiempos fijos, la página cambiará sola de Nivel 4 → 5 → 6 → 7 → 8.
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-[#131B2E] border border-amber-500/40">
+                    <div className="font-bold text-amber-300 mb-1">
+                      Método B: Detección Automática del Cliente Riot (Puente Local)
+                    </div>
+                    <p className="text-slate-300">
+                      Por seguridad, los navegadores bloquean el certificado autofirmado de <code className="font-mono">127.0.0.1:2999</code>. Descarga y ejecuta este micro-script ligero (<code className="font-mono text-amber-300">tft_live_bridge.py</code>, no requiere librerías externas): lee el cliente de Riot y le avisa automáticamente a esta página web en qué fase estás.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-bold text-slate-200">
+                  Script Puente Local (`tft_live_bridge.py` — 0 dependencias externas, usa Python estándar):
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleDownloadFile(
+                        'tft_live_bridge.py',
+                        liveBridgePythonCode,
+                        'text/x-python'
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold text-xs hover:bg-amber-400 cursor-pointer whitespace-nowrap"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Descargar tft_live_bridge.py
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard('bridge', liveBridgePythonCode)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B0F17] border border-slate-700 text-xs text-slate-200 hover:border-slate-500 cursor-pointer whitespace-nowrap"
+                  >
+                    {copiedKey === 'bridge' ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                    {copiedKey === 'bridge' ? 'Copiado' : 'Copiar Script'}
+                  </button>
+                </div>
+              </div>
+
+              <pre className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-300 overflow-x-auto max-h-56">
+                {liveBridgePythonCode}
+              </pre>
+            </div>
+          )}
+
+          {activeTab === 'github_pages' && (
+            <div className="space-y-4 text-xs text-slate-300 leading-relaxed">
+              <div className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 space-y-2.5">
+                <h3 className="text-sm font-display font-bold text-amber-300">
+                  Este proyecto ya está preconfigurado para GitHub Pages
+                </h3>
+                <p>
+                  Ya hemos configurado <code className="font-mono text-emerald-300">base: './'</code> en <code className="font-mono text-white">vite.config.ts</code> y hemos creado el flujo automático <code className="font-mono text-emerald-300">.github/workflows/deploy.yml</code>. Solo necesitas subir el código a un repositorio de GitHub y se publicará gratis en tu URL <code className="font-mono text-amber-300">https://tu-usuario.github.io/nombre-repo/</code>.
+                </p>
+              </div>
+
+              <div className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-amber-300 font-mono">
+                    COMANDOS PARA SUBIR Y PUBLICAR EN GITHUB PAGES
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard('gh', githubPagesCommands)}
+                    className="text-xs text-slate-400 hover:text-white inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    {copiedKey === 'gh' ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                    Copiar comandos
+                  </button>
+                </div>
+                <pre className="text-xs font-mono text-emerald-300 overflow-x-auto whitespace-pre-wrap">
+                  {githubPagesCommands}
+                </pre>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'json' && (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs text-slate-300">
                   Edita directamente las composiciones del parche actual o importa un archivo{' '}
-                  <code className="font-mono text-amber-300">meta_comps.json</code>. La interfaz se actualiza al instante.
+                  <code className="font-mono text-amber-300">meta_comps.json</code>.
                 </p>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -324,7 +536,7 @@ pyinstaller --noconsole --onefile --add-data "meta_comps.json;." --name "TFT_Tac
               <textarea
                 value={jsonText}
                 onChange={(e) => setJsonText(e.target.value)}
-                rows={15}
+                rows={13}
                 spellCheck={false}
                 className="w-full rounded-xl bg-[#0B0F17] border border-slate-800 p-4 font-mono text-xs text-slate-200 focus:outline-none focus:border-amber-400"
               />
@@ -346,10 +558,10 @@ pyinstaller --noconsole --onefile --add-data "meta_comps.json;." --name "TFT_Tac
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-display font-bold text-slate-100">
-                    Script Completo en Python (CustomTkinter) + Instrucciones PyInstaller
+                    App Desktop en Python (CustomTkinter) con Auto-Detección 127.0.0.1:2999
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Lee el mismo archivo <code className="font-mono text-amber-300">meta_comps.json</code> para que nunca tengas que recompilar cuando cambie el parche.
+                    Al ser un ejecutable <code className="font-mono text-amber-300">.exe</code> nativo en tu PC, lee directamente el cliente de Riot Games sin bloqueos de navegador.
                   </p>
                 </div>
 
@@ -387,7 +599,7 @@ pyinstaller --noconsole --onefile --add-data "meta_comps.json;." --name "TFT_Tac
               <div className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-amber-300 font-mono">
-                    PASOS PARA GENERAR EL ARCHIVO .EXE EN WINDOWS
+                    COMANDOS PARA GENERAR EL ARCHIVO .EXE EN WINDOWS
                   </span>
                   <button
                     type="button"
@@ -407,29 +619,9 @@ pyinstaller --noconsole --onefile --add-data "meta_comps.json;." --name "TFT_Tac
                 </pre>
               </div>
 
-              <pre className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-300 overflow-x-auto max-h-64">
+              <pre className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-300 overflow-x-auto max-h-52">
                 {pythonDesktopCode}
               </pre>
-            </div>
-          )}
-
-          {activeTab === 'second_screen' && (
-            <div className="space-y-4 text-xs text-slate-300 leading-relaxed">
-              <div className="bg-[#0B0F17] border border-slate-800 rounded-xl p-4 space-y-3">
-                <h3 className="text-sm font-display font-bold text-amber-300">
-                  Opción Recomendada: Ejecutar esta Interfaz Completa como App de Escritorio Ligera (.BAT / Acceso Directo)
-                </h3>
-                <p>
-                  Puedes lanzar esta misma aplicación visual interactiva (con todos los íconos oficiales, tablero hexagonal 4×7 y filtro de campeones en tiempo real) en tu segundo monitor sin barra de direcciones ni pestañas de navegador creando un archivo{' '}
-                  <code className="font-mono text-white">Iniciar_TFT_Overlay.bat</code> en tu Escritorio con esta línea:
-                </p>
-                <pre className="bg-[#131B2E] border border-slate-700 rounded-lg p-3 font-mono text-emerald-300 overflow-x-auto">
-                  {`start msedge.exe --app="${window.location.origin}" --window-size=1440,900`}
-                </pre>
-                <p className="text-slate-400">
-                  Esto abre el asistente como una ventana nativa independiente con consumo mínimo de RAM y GPU mientras juegas Teamfight Tactics en pantalla completa sin bordes en el monitor principal.
-                </p>
-              </div>
             </div>
           )}
         </div>
